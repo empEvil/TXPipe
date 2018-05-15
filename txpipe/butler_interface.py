@@ -14,7 +14,13 @@ class TXButlerInterface1(PipelineStage):
 
     def run(self):
         # Read in some data and write it out to an HDF 5 file!
-        pass
+        # This gets the path from config:
+        repo_dir = self.config['repo_dir']
+
+        # This will be an h5py file open for writing:
+        output_file = self.open_output('photometry_catalog')
+        
+        # Not sure what should come next!
 
 
 

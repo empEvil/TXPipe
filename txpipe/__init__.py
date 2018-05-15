@@ -11,4 +11,4 @@ from .photoz_stack import TXPhotozStack
 from .random_cats import TXRandomCat
 from .sysmaps import TXDiagnosticMaps
 from .twopoint import TXTwoPoint
-
+from .butler_interface import TXButlerInterface1
