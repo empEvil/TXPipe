@@ -1,0 +1,27 @@
+"""
+run this on the command line to install lsst code:
+
+    source /global/common/software/lsst/cori-haswell-gcc//Run1.1p_setup.bash
+
+that will let you run this code python code:
+
+"""
+
+import lsst.afw.display as afw_display                                                                
+import lsst.daf.persistence as daf_persistence
+import lsst.afw.geom as afw_geom
+
+butler = daf_persistence.Butler('/global/projecta/projectdirs/lsst/global/in2p3/Run1.1-test2/output/')
+# I just picked this info by looking in the directory - I don't know how to get a list within python 
+# of all available patches/tracts/filters.  You'll have to investigate that!
+dataId = {'patch':'1,1', 'tract':4849, 'filter':'r'}
+
+# Gets this specific chunk of data
+cat=butler.get('deepCoadd_meas', dataId=dataId)
+
+# makes it much easier to deal with - an astropy table which are very friendly
+cat = cat.asAstropy()
+
+# Can now pull out columns etc.
+# We'll definitely need to iterate on what columns we need but the magnitude ones
+# and model fit ones will definitely be useful
