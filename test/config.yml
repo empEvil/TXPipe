@@ -58,3 +58,4 @@ TXDiagnosticMaps:
 
 TXTwoPointFourier:
     chunk_rows: 10000
+    bandwidth: 200

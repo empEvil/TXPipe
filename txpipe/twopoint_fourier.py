@@ -372,7 +372,7 @@ class TXTwoPointFourier(PipelineStage):
             ls = ell_bins.get_effective_ells()
             # Top-hat window functions
             win = [ell_bins.get_window(b) for b,l  in enumerate(ls)]
-            cl_noise = self.compute_noise(i,j,k,w22,noise)
+            cl_noise = self.compute_noise(i, j, k, w22, noise, pixel_scheme)
             cl_guess = [theory, np.zeros_like(theory), np.zeros_like(theory), np.zeros_like(theory)]
             c = self.compute_one_spectrum(
                 pixel_scheme, w22, f_wl[i], f_wl[j], ell_bins, cl_noise, cl_guess)
@@ -404,11 +404,44 @@ class TXTwoPointFourier(PipelineStage):
             self.results.append(Measurement('CdE', ls, c_dE, win, i, j))
             self.results.append(Measurement('CdB', ls, c_dB, win, i, j))
 
-    def compute_noise(self, i, j, k, w, noise):
+
+
+    def load_tomographic_quantities(self, nbin_source, nbin_lens, f_sky):
+        tomo = self.open_input('tomography_catalog')
+
+        # Calibration response
+        mean_R = tomo['multiplicative_bias/mean_R'][:]
+
+        # Quantities needed for noise
+        sigma_e = tomo['tomography/sigma_e'][:]
+        N_eff = tomo['tomography/N_eff'][:]
+        lens_counts = tomo['tomography/lens_counts'][:]
+        tomo.close()
+
+        # Noise levels
+        area = 4*np.pi*f_sky
+        n_eff = N_eff / area
+        n_lens = lens_counts / area
+
+        # Put these into a dictionary with keys indexing
+        # the tomographic bin and shear/pos
+        noise = {}
+        for i in range(nbin_source):
+            noise[(i,SHEAR_SHEAR)] = f_sky * sigma_e[i]**2 / n_eff[i]
+        for i in range(nbin_lens):
+            noise[(i,POS_POS)] = f_sky / n_lens[i]
+
+        # This is correct for now, but will need to change later
+        warnings.warn("Using unweighted lens samples here")
+
+        return noise, mean_R
+
+
+    def compute_noise(self, i, j, k, w, noise, pixel_scheme):
         # No noise contribution from cross-correlations
         if (i!=j) or (k==SHEAR_POS):
             return None
-        print("x")
+
         # We loaded in sigma_e and the densities
         # earlier on and put them in the noise dictionary
         noise_level = noise[(i,k)]
@@ -426,24 +459,26 @@ class TXTwoPointFourier(PipelineStage):
             N2 = [N1, N1]
         else:
             N2 = [N1]
-        return N2
 
-        # # Run the same decoupling process that we will use
-        # # on the full spectra
-        # N_b = w.decouple_cell(N2)[0]
+        if pixel_scheme.name == 'healpix':
+            coupled_noise = w.couple_cell(N2)
+        elif pixel_scheme.name == 'gnomonic':
+            ell = np.arange(w.wsp.lmax+1)
+            coupled_noise = w.couple_cell(ell, N2)
 
-        # return N_b
+        return coupled_noise
+
 
 
     def compute_one_spectrum(self, pixel_scheme, w, f1, f2, ell_bins, cl_noise, theory):
         import pymaster as nmt
 
-
-
         if pixel_scheme.name == 'healpix':
             # correlates two fields f1 and f2 and returns an array of coupled
             # power spectra
             coupled_c_ell = nmt.compute_coupled_cell(f1, f2)
+            print("total: ", coupled_c_ell)
+            print("noise: ", cl_noise)
             # Compute 
             cl_bias = nmt.deprojection_bias(f1, f2, theory)
 
@@ -451,33 +486,11 @@ class TXTwoPointFourier(PipelineStage):
             coupled_c_ell = nmt.compute_coupled_cell_flat(f1, f2, ell_bins)
             ell_eff = ell_bins.get_effective_ells()
             cl_bias = nmt.deprojection_bias_flat(f1, f2, ell_bins, ell_eff, cl_theory)
+        else:
+            raise ValueError("Unknown pixel scheme in compute_one_spectrum")
 
         c_ell = w.decouple_cell(coupled_c_ell, cl_noise=cl_noise, cl_bias=cl_bias)
         return c_ell
-
-    def load_tomographic_quantities(self, nbin_source, nbin_lens, f_sky):
-        tomo = self.open_input('tomography_catalog')
-        sigma_e = tomo['tomography/sigma_e'][:]
-        mean_R = tomo['multiplicative_bias/mean_R'][:]
-        N_eff = tomo['tomography/N_eff'][:]
-        lens_counts = tomo['tomography/lens_counts'][:]
-        tomo.close()
-
-        area = 4*np.pi*f_sky
-
-        n_eff = N_eff / area
-        n_lens = lens_counts / area
-
-        noise = {}
-        for i in range(nbin_source):
-            noise[(i,SHEAR_SHEAR)] = sigma_e[i]**2 / n_eff[i]
-        for i in range(nbin_lens):
-            noise[(i,POS_POS)] = 1.0 / n_lens[i]
-
-        warnings.warn("Using unweighted lens samples here")
-
-        return noise, mean_R
-
 
 
     def load_tracers(self, nbin_source, nbin_lens):
@@ -579,14 +592,14 @@ class TXTwoPointFourier(PipelineStage):
             'Cdd': 'P', # Galaxy position
             'CdE': 'P',
             'CdB': 'P',
-            }
+        }
         q2s = {
             'CEE': 'E',
             'CBB': 'B',
             'Cdd': 'P',
             'CdE': 'E',
             'CdB': 'B',
-            }
+        }
         for corr_type in ['CEE', 'CBB', 'Cdd', 'CdE', 'CdB']:
             data = [r for r in self.results if r.corr_type == corr_type]
             for bin_pair_data in data:
