@@ -1,5 +1,6 @@
 from ceci import PipelineStage
 from .data_types import MetacalCatalog, HDFFile
+import numpy as np
 
 # could also just load /global/projecta/projectdirs/lsst/groups/CS/descqa/catalog/ANL_AlphaQ_v3.0.hdf5
 
@@ -29,7 +30,7 @@ class TXProtoDC2Mock(PipelineStage):
         'cat_name':'protoDC2_test',
         'visits_per_band':165,  # used in the noise simulation
         'snr_limit':4.0,  # used to decide what objects to cut out
-        'max_size': 99999999999999  #for testing on smaller catalogs
+        'max_size': 99999999999999,  #for testing on smaller catalogs
         'unit_response': False,
         }
 
@@ -89,7 +90,9 @@ class TXProtoDC2Mock(PipelineStage):
             print(f"Read chunk {s} - {e} or {self.cat_size}")
             # Select a random fraction of the catalog
             if self.cat_size != N:
-                select = np.random.binomial(chunk_size, select_fraction)
+                select = np.random.uniform(0, 1, size=chunk_size) < select_fraction
+                if select.sum()==0:
+                    continue
                 for name in list(data.keys()):
                     data[name] = data[name][select]
 
