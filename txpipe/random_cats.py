@@ -89,8 +89,7 @@ class TXRandomCat(PipelineStage):
         ### Once the density gets updated per redshift bin, the output file will need to 
         ### combine all the tomographic bins in a bit more clever/convenient way than currently
         n_total = sum(numbers.values()).sum()
-
-        output_file = self.open_output('random_cats')
+        output_file = self.open_output('random_cats', parallel=True)
         group = output_file.create_group('randoms')
         ra_out = group.create_dataset('ra', (n_total,), dtype=np.float64)
         dec_out = group.create_dataset('dec', (n_total,), dtype=np.float64)
@@ -112,6 +111,10 @@ class TXRandomCat(PipelineStage):
 
             # Generate the random points in each pixel
             for i,(vertices_i,N) in enumerate(zip(vertices,numbers[j])):
+                if i % self.size != self.rank:
+                    index += N
+                    continue
+
                 # First generate some random ellipticities.
                 # This theta is not the orientation angle, it is the 
                 # angle in the e1,e2 plane
@@ -147,6 +150,9 @@ class TXRandomCat(PipelineStage):
                 z_out[index:index+N] = z_photo_rand
                 bin_out[index:index+N] = bin_index
                 index += N
+
+        if self.comm is not None:
+            self.comm.Barrier()
 
         output_file.close()
 
