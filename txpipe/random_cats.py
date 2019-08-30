@@ -110,10 +110,13 @@ class TXRandomCat(PipelineStage):
             z_cdf_norm = z_cdf / np.float(max(z_cdf))
 
             # Generate the random points in each pixel
+            npix = len(vertices)
             for i,(vertices_i,N) in enumerate(zip(vertices,numbers[j])):
-                if i % self.size != self.rank:
+                if (i % self.size != self.rank) or (N==0):
                     index += N
                     continue
+                elif (i%10000==0):
+                    print(f"Rank {self.rank} has reached pixel {i}/{npix}")
 
                 # First generate some random ellipticities.
                 # This theta is not the orientation angle, it is the 
