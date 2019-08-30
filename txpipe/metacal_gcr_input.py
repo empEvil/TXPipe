@@ -174,7 +174,7 @@ class TXMetacalGCRInput(PipelineStage):
             ('', 'measured_'),
             ('PSF', 'model_')
         ]
-
+        print("JZ fix star e->g")
         for in_name, out_name in kinds:
             # Pulling out the correct moment columns
             Ixx = data[f'Ixx{in_name}'][star]

@@ -80,10 +80,12 @@ class TXRandomCat(PipelineStage):
         
         ### Loop over the tomographic bins to find number of galaxies in each pixel/zbin
         ### When the density changes per redshift bin, this can go into the main Ntomo loop
-        numbers = {}
-        for j in range(Ntomo):
-            # Poisson distribution about mean
-            numbers[j] = scipy.stats.poisson.rvs(density*area, 1)
+        if self.rank == 0:
+            numbers = [scipy.stats.poisson.rvs(density*area, 1) for i in range(Ntomo)]
+            if self.comm is not None:
+                self.bcast(numbers)
+        else:
+            numbers = self.bcast(None)
 
         ### Get total number of randoms in all zbins
         ### Once the density gets updated per redshift bin, the output file will need to 
