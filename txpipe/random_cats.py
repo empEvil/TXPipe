@@ -83,14 +83,14 @@ class TXRandomCat(PipelineStage):
         if self.rank == 0:
             numbers = [scipy.stats.poisson.rvs(density*area, 1) for i in range(Ntomo)]
             if self.comm is not None:
-                self.bcast(numbers)
+                self.comm.bcast(numbers)
         else:
-            numbers = self.bcast(None)
+            numbers = self.comm.bcast(None)
 
         ### Get total number of randoms in all zbins
         ### Once the density gets updated per redshift bin, the output file will need to 
         ### combine all the tomographic bins in a bit more clever/convenient way than currently
-        n_total = sum(numbers.values()).sum()
+        n_total = sum(numbers).sum()
         output_file = self.open_output('random_cats', parallel=True)
         group = output_file.create_group('randoms')
         ra_out = group.create_dataset('ra', (n_total,), dtype=np.float64)
