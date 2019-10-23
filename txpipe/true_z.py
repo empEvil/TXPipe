@@ -1,5 +1,5 @@
 from .base_stage import PipelineStage
-from .data_types import TomographyCatalog, HDFFile, SaccFile
+from .data_types import TomographyCatalog, HDFFile, SACCFile
 from .utils import NumberDensityStats
 from .utils.metacal import metacal_variants, metacal_band_variants
 import numpy as np
@@ -13,11 +13,11 @@ class TXTruthRedshift(PipelineStage):
     inputs = [
         ('photometry_catalog', HDFFile),
         ('tomography_catalog', TomographyCatalog),
-        ('twopoint_data', SaccFile),
+        ('twopoint_data', SACCFile),
     ]
 
     outputs = [
-        ('twopoint_data_true_z', SaccFile),
+        ('twopoint_data_true_z', SACCFile),
         ('true_redshift_catalog', HDFFile),
     ]
 
@@ -29,7 +29,7 @@ class TXTruthRedshift(PipelineStage):
     }
 
     def run(self):
-
+        import fitsio, sacc
         # Config for the output n(z)
         zmin = 0.0
         zmax = self.config['zmax']
@@ -43,7 +43,7 @@ class TXTruthRedshift(PipelineStage):
 
         #  Data we will generate
         redshift_outfile = self.open_output('true_redshift_catalog')
-        redshift_outfile.create_dataset('redshift_true/z', dtype=np.int64, size=N)
+        redshift_outfile.create_dataset('redshift_true/z', (N,), dtype=np.int64)
         nz_source = [np.zeros(nz) for i in range(nbin_source)]
         nz_lens = [np.zeros(nz) for i in range(nbin_lens)]
 
@@ -59,7 +59,7 @@ class TXTruthRedshift(PipelineStage):
 
 
         for (s,e, photo_data), (_, _, tomo_data) in zip(it_photo, it_tomo):
-
+            print(f"Processing rows {s}-{e}")
             #  lookup truth values
             true_z = self.lookup(photo_data['id'], lookup_table)
 
@@ -77,9 +77,12 @@ class TXTruthRedshift(PipelineStage):
                 count, _ = np.histogram(true_z[w], bins=nz, range=(zmin, zmax))
                 nz_lens[i] += count
 
-    def write_output(self, z, nz_source, nz_lens)
+        self.write_output(z, nz_source, nz_lens)
+                
+    def write_output(self, z, nz_source, nz_lens):
+        import sacc
         # Load the input sacc data as a template
-        S = sacc.Sacc.load_fits(sacc_file)
+        S = sacc.Sacc.load_fits(self.get_input('twopoint_data'))
 
         # Replace the n(z) data in it
         for i,nz in enumerate(nz_source):
@@ -105,7 +108,7 @@ class TXTruthRedshift(PipelineStage):
         tomo = self.open_input('tomography_catalog')        
         nbin_source = tomo['tomography'].attrs['nbin_source']
         nbin_lens = tomo['tomography'].attrs['nbin_lens']
-        N = len(photo['tomography/lens_bin'].size)
+        N = tomo['tomography/lens_bin'].size
         photo.close()
         tomo.close()
         return nbin_source, nbin_lens, N
@@ -113,24 +116,24 @@ class TXTruthRedshift(PipelineStage):
 
 
     def load_match(self):
+        import fitsio
         pattern = self.config['match_catalog_root'] + "*"
         files = glob.glob(pattern)
-        N = sum(fitsio.FITS(fn)[1].get_nrows() for fn in files)
 
-        ids = np.zeros(N, dtype=np.int64)
-        redshift = np.zeros(N)
-        is_matched = np.zeros(N, dtype=bool)
-        
-        s = 0
+        ids = []
+        redshift = []
+
         for fn in files:
+            print(f"Loading match catalog {fn}")
             f = fitsio.FITS(fn)
             d=f[1].read_columns(['objectId','redshift_true'])
-            n = len(d['objectId'])
-            e = s+n
-            redshift[s:e] = d['redshift_true']
-            ids[s:e] = d['objectId']
+            
+            redshift.append(d['redshift_true'])
+            ids.append(d['objectId'])
 
-            s = e
+        ids = np.concatenate(ids)
+        redshift = np.concatenate(redshift)
+            
         a = np.argsort(ids)
         ids = ids[a]
         redshift = redshift[a]
