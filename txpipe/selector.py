@@ -92,7 +92,7 @@ class TXSelector(PipelineStage):
         phot_cols = ['g_mag', 'r_mag', 'i_mag']
 
         # Columns we need from the shear catalog
-        shear_cols = ['mcal_flags', 'mcal_psf_T_mean']
+        shear_cols = ['mcal_flags', 'mcal_psf_T']
         shear_cols += metacal_band_variants(bands, 'mcal_mag', 'mcal_mag_err')
         shear_cols += metacal_variants('mcal_T', 'mcal_s2n', 'mcal_g1', 'mcal_g2')
 
@@ -544,7 +544,7 @@ class TXSelector(PipelineStage):
         T = shear_data[T_col]
         zbin = pz_data[z_col]
 
-        Tpsf = shear_data['mcal_psf_T_mean']
+        Tpsf = shear_data['mcal_psf_T']
         flag = shear_data['mcal_flags']
 
         n0 = len(flag)

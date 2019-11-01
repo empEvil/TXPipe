@@ -246,7 +246,7 @@ class TXDirectCatalogInput(PipelineStage):
         shear_renames = {
             'mcal_psf_g1_mean': 'mcal_psf_g1',
             'mcal_psf_g2_mean': 'mcal_psf_g2',
-            'mcal_psf_T_mean': 'mcal_T_psf',
+            'mcal_psf_T_mean': 'mcal_psf_T',
         }
 
         for v in ['', '_1p', '_2p', '_1m', '_2m']:
