@@ -149,4 +149,7 @@ class TXTruthRedshift(PipelineStage):
         # if not found, use 0? nan?
         indices = np.searchsorted(ids, object_ids)
         z = redshift[indices]
+        m = ids[indices] == object_ids
+        f = np.sum(m) / m.size
+        print(f"{f:.2%} of objects matched")
         return z
