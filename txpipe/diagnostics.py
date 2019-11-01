@@ -51,7 +51,7 @@ class TXDiagnosticPlots(PipelineStage):
         # This method automatically splits up data among the processes,
         # so the plotters should handle this.
         chunk_rows = self.config['chunk_rows']
-        shear_cols = ['mcal_psf_g1', 'mcal_psf_g2','mcal_g1','mcal_g2','mcal_psf_T_mean','mcal_s2n','mcal_T']
+        shear_cols = ['mcal_psf_g1', 'mcal_psf_g2','mcal_g1','mcal_g2','mcal_psf_T','mcal_s2n','mcal_T']
         iter_shear = self.iterate_hdf('shear_catalog', 'metacal', shear_cols, chunk_rows)
 
         photo_cols = ['u_mag', 'g_mag', 'r_mag', 'i_mag', 'z_mag', 'y_mag']
@@ -199,14 +199,14 @@ class TXDiagnosticPlots(PipelineStage):
             qual_cut = data['source_bin'] !=-1
 #            qual_cut |= data['lens_bin'] !=-1
 
-            b1 = np.digitize(data['mcal_psf_T_mean'][qual_cut], psf_g_edges) - 1
+            b1 = np.digitize(data['mcal_psf_T'][qual_cut], psf_g_edges) - 1
 
             for i in range(size):
                 w = np.where(b1==i)
                 # Do more things here to establish
                 calc1.add_data(i, data['mcal_g1'][qual_cut][w])
                 calc2.add_data(i, data['mcal_g2'][qual_cut][w])
-                mu.add_data(i, data['mcal_psf_T_mean'][qual_cut][w])
+                mu.add_data(i, data['mcal_psf_T'][qual_cut][w])
 
         count1, mean1, var1 = calc1.collect(self.comm, mode='gather')
         count2, mean2, var2 = calc2.collect(self.comm, mode='gather')
