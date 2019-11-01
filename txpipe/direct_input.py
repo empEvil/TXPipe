@@ -46,13 +46,13 @@ class TXDirectCatalogInput(PipelineStage):
         # Can parallelize to run over these separately
         for tract in tracts:
             photo_data, shear_data = self.read_tract(tract)
-            self.preprocess_data(photo_data, shear_data)
+            self.preprocess_data(shear_data, photo_data)
             star_data = self.compute_star_data(photo_data, tract)
 
             # First chunk of data we use to set up the output
             if shear_output is None:
                 shear_output = self.create_output('shear_catalog', 'metacal',    shear_data, total_count)
-                photo_output = self.create_output('photo_catalog', 'photometry', photo_data, total_count)
+                photo_output = self.create_output('photometry_catalog', 'photometry', photo_data, total_count)
                 star_output  = self.create_output('star_catalog',  'stars',       star_data, star_count)
 
                 if self.comm is not None:
@@ -117,8 +117,6 @@ class TXDirectCatalogInput(PipelineStage):
 
     def match_input_files(self):
         tract_files = self.find_tract_files()
-        print("Just using first 10 for testing")
-        tract_files = tract_files[:10]
         tracts = []
         start = 0
         star_start = 0
@@ -145,15 +143,17 @@ class TXDirectCatalogInput(PipelineStage):
         print(f"Reading data for tract {tract.tract}")
         object_columns, shear_columns = self.select_input_columns()
 
+        print("Reading {} columns from {}".format(len(shear_columns), tract.shear_file))
         shear_data = self.read_file(tract.shear_file,  shear_columns)
+        print("Reading {} columns from {}".format(len(object_columns), tract.photo_file))
         photo_data = self.read_file(tract.photo_file, object_columns)
 
 
         for name in list(shear_data.keys()):
-            shear_data[name] = shear_data[name][tract.shear_index]
+            shear_data[name] = shear_data[name][:][tract.shear_index]
 
         for name in list(photo_data.keys()):
-            photo_data[name] = photo_data[name][tract.photo_index]
+            photo_data[name] = photo_data[name][:][tract.photo_index]
         
         return photo_data, shear_data
 
@@ -181,9 +181,9 @@ class TXDirectCatalogInput(PipelineStage):
             '{}_modelfit_CModel_instFlux',
             '{}_modelfit_SNR',
         ]
-        for band in bands:
+        for b in bands:
             for name in band_columns:
-                object_columns.append(name.format(band))
+                object_columns.append(name.format(b))
 
         shear_columns = (
             ['id',
@@ -207,8 +207,7 @@ class TXDirectCatalogInput(PipelineStage):
     def read_file(self, filename, columns):
         import pyarrow.parquet as pq
         if filename.endswith('.parquet'):
-            f = pq.ParquetFile(filename)
-            data = f.read(columns)
+            data = pq.read_table(filename, columns, use_threads=False)
             data = {name: data.column(name).to_pandas().to_numpy() for name in columns}
         else:
             raise ValueError(f"Unknown file type: {filename}")
@@ -217,7 +216,9 @@ class TXDirectCatalogInput(PipelineStage):
 
     def preprocess_data(self, shear_data, photo_data):
         metacal_zero_point = self.config['metacal_zero_point'] 
-
+        metacal_bands = self.config['metacal_bands']
+        bands = 'ugrizy'
+        
         # rename columns:
         photo_renames = {
             'coord_ra' : 'ra',
@@ -229,7 +230,7 @@ class TXDirectCatalogInput(PipelineStage):
             'base_SdssShape_psf_xy' : 'IxyPSF',
             'base_SdssShape_psf_yy' : 'IyyPSF',
         }
-        for b in band:
+        for b in bands:
             photo_renames[f'{b}_modelfit_SNR'] = f'snr_{b}'
 
 
@@ -241,7 +242,7 @@ class TXDirectCatalogInput(PipelineStage):
 
         for v in ['', '_1p', '_2p', '_1m', '_2m']:
             shear_renames[f'mcal_gauss_g1{v}']       = f'mcal_g1{v}'
-            shear_renames[f'mcal_gauss_g2{variant}'] = f'mcal_g2{v}'
+            shear_renames[f'mcal_gauss_g2{v}'] = f'mcal_g2{v}'
             shear_renames[f'mcal_gauss_T{v}']        = f'mcal_T{v}'
             shear_renames[f'mcal_gauss_s2n{v}']      = f'mcal_s2n{v}'
 
@@ -258,16 +259,16 @@ class TXDirectCatalogInput(PipelineStage):
         # fluxes.
         for b in metacal_bands:
             for v in ['', '_1p', '_2p', '_1m', '_2m']:
-                flux = shear_data['mcal_gauss_flux_{b}{v}']
-                err = shear_data['mcal_gauss_flux_err_{b}{v}']
+                flux = shear_data[f'mcal_gauss_flux_{b}{v}']
+                err = shear_data[f'mcal_gauss_flux_err_{b}{v}']
                 mag = -2.5 * np.log10(flux) + metacal_zero_point
                 mag_err = (2.5 * err ) / (flux * np.log(10))
 
                 shear_data[f'mcal_mag_{b}{v}'] = mag
                 shear_data[f'mcal_mag_err_{b}{v}'] = mag_err
 
-                del flux = shear_data['mcal_gauss_flux_{b}{v}']
-                del err = shear_data['mcal_gauss_flux_err_{b}{v}']
+                del shear_data[f'mcal_gauss_flux_{b}{v}']
+                del shear_data[f'mcal_gauss_flux_err_{b}{v}']
 
 
         
@@ -317,7 +318,7 @@ class TXDirectCatalogInput(PipelineStage):
         return star_data
 
     def write_output(self, output_file, group, data, start):
-        g = output_file[group_name]
+        g = output_file[group]
         n = len(list(data.values())[0])
         end = start + n
         for name, col in data.items():
@@ -328,7 +329,8 @@ class TXDirectCatalogInput(PipelineStage):
         f = self.open_output(output_tag)
         g = f.create_group(group)
         for name, value in data.items():
-            g.create_dataset(name, dtype=value.dtype, size=(n,))
+            g.create_dataset(name, (n,), dtype=value.dtype)
+        return f
 
 
 # response to an old Stack Overflow question of mine:
