@@ -4,9 +4,10 @@ from .utils.metacal import metacal_band_variants, metacal_variants
 import numpy as np
 from collections import namedtuple
 import re
+import os
 
 TractData = namedtuple('TractData', 
-    ['shear_file', 'photo_file', 'shear_index', 'photo_index', 'star_index', 'start', 'star_start'])
+    ['tract', 'shear_file', 'photo_file', 'shear_index', 'photo_index', 'star_index', 'start', 'star_start'])
 
 
 class TXDirectCatalogInput(PipelineStage):
@@ -67,9 +68,13 @@ class TXDirectCatalogInput(PipelineStage):
         photo_output.close()
         star_output.close()
 
-    def find_file_pairs(self):
-        object_files = os.listdir(self.config['object_directory'])
-        shear_files = os.listdir(self.config['metacal_directory'])
+    def find_tract_files(self):
+
+        object_directory = self.config['object_directory']
+        metacal_directory = self.config['metacal_directory']
+
+        object_files = os.listdir(object_directory)
+        shear_files = os.listdir(metacal_directory)
 
         object_tracts = {}
         shear_tracts = {}
@@ -84,7 +89,7 @@ class TXDirectCatalogInput(PipelineStage):
             m = re.match("metacal_tract_([0-9]+).parquet", f)
             if m:
                 tract = m.group(1)
-                shear_tracts[tract] = os.path.join(object_directory, f)
+                shear_tracts[tract] = os.path.join(metacal_directory, f)
 
         pairs = []
         for tract in list(shear_tracts.keys()):
@@ -93,7 +98,7 @@ class TXDirectCatalogInput(PipelineStage):
             if object_file is None:
                 print(f"No matching object file for shear file {shear_file}")
                 continue
-            pairs.append(shear_file, object_file)
+            pairs.append((tract, shear_file, object_file))
         for object_file in object_tracts.values():
             print(f"No matching shear file for object file {object_file}")
 
@@ -109,17 +114,23 @@ class TXDirectCatalogInput(PipelineStage):
 
 
     def match_input_files(self):
-        file_pairs = self.find_file_pairs()
+        tract_files = self.find_tract_files()
+        print("Just using first 10 for testing")
+        tract_files = tract_files[:10]
         tracts = []
         start = 0
         star_start = 0
-        for (shear_filename, object_filename) in file_pairs:
+        print("Reading id numbers to find matches")
+        n = len(tract_files)
+        for i, (tract, shear_filename, object_filename) in enumerate(tract_files):
             shear_ids = self.read_file(shear_filename,  ['id'])['id']
             photo_data = self.read_file(object_filename, ['id', 'calib_psf_used'])
+            if (i+1)%10==0:
+                print(f"Read {i} of {n} file pairs")
             photo_ids = photo_data['id']
             star_index = np.where(photo_data['calib_psf_used'])[0]
-            shear_index, photo_index = np.intersecting_indices(shear_ids, photo_ids)
-            tracts.append(TractData(shear_filename, object_filename, shear_index, photo_index, star_index, start, star_start))
+            shear_index, photo_index = intersecting_indices(shear_ids, photo_ids)
+            tracts.append(TractData(tract, shear_filename, object_filename, shear_index, photo_index, star_index, start, star_start))
             start += shear_index.size
             star_start += star_index.size
         total_count = start
@@ -129,12 +140,13 @@ class TXDirectCatalogInput(PipelineStage):
 
 
     def read_tract(self, tract):
+        print(f"Reading data for tract {tract.tract}")
         object_columns, shear_columns = self.select_input_columns()
 
-        shear_data = self.read_file(tract.shear_filename,  shear_columns)
-        photo_data = self.read_file(tract.object_filename, object_columns)
+        shear_data = self.read_file(tract.shear_file,  shear_columns)
+        photo_data = self.read_file(tract.photo_file, object_columns)
 
-        # now sort and match the data fles by id
+
         for name in list(shear_data.keys()):
             shear_data[name] = shear_data[name][tract.shear_index]
 
@@ -148,24 +160,22 @@ class TXDirectCatalogInput(PipelineStage):
         bands = 'ugrizy'
         object_columns = [
             'id',
-            'ra',
-            'dec',
+            'coord_ra',
+            'coord_dec',
             'calib_psf_used',
-            'Ixx',
-            'Ixy',
-            'Iyy',
-            'IxxPSF',
-            'IxyPSF',
-            'IyyPSF',
+            'ext_shapeHSM_HsmSourceMoments_xx',
+            'ext_shapeHSM_HsmSourceMoments_xy',
+            'ext_shapeHSM_HsmSourceMoments_yy',
+            'base_SdssShape_psf_xx',
+            'base_SdssShape_psf_xy',
+            'base_SdssShape_psf_yy',
         ]
         band_columns = [
-            'mag_{}',
-            'magerr_{}',
-            '{}_modelfit_CModel_instFluxErr',
-            '{}_modelfit_CModel_instFlux',
             '{}_mag',
             '{}_mag_err',
-            'snr_{}',
+            '{}_modelfit_CModel_instFluxErr',
+            '{}_modelfit_CModel_instFlux',
+            '{}_modelfit_SNR',
         ]
         for band in bands:
             for name in band_columns:
@@ -173,28 +183,29 @@ class TXDirectCatalogInput(PipelineStage):
 
         shear_columns = (
             ['id',
-            'mcal_psf_g1',
-            'mcal_psf_g2',
+            'mcal_psf_g1_mean',
+            'mcal_psf_g2_mean',
             'mcal_psf_T_mean',
             'mcal_flags'
             ]
             + metacal_variants(
-                'mcal_g1',
-                'mcal_g2',
-                'mcal_T',
-                'mcal_s2n')
-            + metacal_band_variants(bands,
-                'mcal_mag',
-                'mcal_mag_err')
+                'mcal_gauss_g1',
+                'mcal_gauss_g2',
+                'mcal_gauss_T',
+                'mcal_gauss_s2n')
+            + metacal_band_variants('griz',
+                'mcal_gauss_flux',
+                'mcal_gauss_flux_err')
         )
 
         return object_columns, shear_columns
 
     def read_file(self, filename, columns):
+        import pyarrow.parquet as pq
         if filename.endswith('.parquet'):
             f = pq.ParquetFile(filename)
             data = f.read(columns)
-            data = {shear_data[name].to_pandas().to_numpy() for name in columns}
+            data = {name: data.column(name).to_pandas().to_numpy() for name in columns}
         else:
             raise ValueError(f"Unknown file type: {filename}")
 
