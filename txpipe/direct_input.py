@@ -25,8 +25,10 @@ class TXDirectCatalogInput(PipelineStage):
     ]
 
     config_options = {
-        'metacal_directory':str,
-        'object_directory':str,
+        'metacal_directory' :str,
+        'object_directory': str,
+        'metacal_zero_point':27.0,
+        'metacal_bands': 'griz'
     }
 
 
@@ -44,8 +46,8 @@ class TXDirectCatalogInput(PipelineStage):
         # Can parallelize to run over these separately
         for tract in tracts:
             photo_data, shear_data = self.read_tract(tract)
-            star_data = self.compute_star_data(photo_data)
-            self.make_output_form(photo_data, shear_data)
+            self.preprocess_data(photo_data, shear_data)
+            star_data = self.compute_star_data(photo_data, tract)
 
             # First chunk of data we use to set up the output
             if shear_output is None:
@@ -158,6 +160,8 @@ class TXDirectCatalogInput(PipelineStage):
 
     def select_input_columns(self):
         bands = 'ugrizy'
+        metacal_bands = self.config['metacal_bands']
+
         object_columns = [
             'id',
             'coord_ra',
@@ -193,7 +197,7 @@ class TXDirectCatalogInput(PipelineStage):
                 'mcal_gauss_g2',
                 'mcal_gauss_T',
                 'mcal_gauss_s2n')
-            + metacal_band_variants('griz',
+            + metacal_band_variants(metacal_bands,
                 'mcal_gauss_flux',
                 'mcal_gauss_flux_err')
         )
@@ -211,12 +215,69 @@ class TXDirectCatalogInput(PipelineStage):
 
         return data
 
+    def preprocess_data(self, shear_data, photo_data):
+        metacal_zero_point = self.config['metacal_zero_point'] 
+
+        # rename columns:
+        photo_renames = {
+            'coord_ra' : 'ra',
+            'coord_dec' : 'dec',
+            'ext_shapeHSM_HsmSourceMoments_xx' : 'Ixx',
+            'ext_shapeHSM_HsmSourceMoments_xy' : 'Ixy',
+            'ext_shapeHSM_HsmSourceMoments_yy' : 'Iyy',
+            'base_SdssShape_psf_xx' : 'IxxPSF',
+            'base_SdssShape_psf_xy' : 'IxyPSF',
+            'base_SdssShape_psf_yy' : 'IyyPSF',
+        }
+        for b in band:
+            photo_renames[f'{b}_modelfit_SNR'] = f'snr_{b}'
 
 
-    def compute_star_data(self, data):
+        shear_renames = {
+            'mcal_psf_g1_mean': 'mcal_psf_g1',
+            'mcal_psf_g2_mean': 'mcal_psf_g2',
+            'mcal_psf_T_mean': 'mcal_T_psf',
+        }
+
+        for v in ['', '_1p', '_2p', '_1m', '_2m']:
+            shear_renames[f'mcal_gauss_g1{v}']       = f'mcal_g1{v}'
+            shear_renames[f'mcal_gauss_g2{variant}'] = f'mcal_g2{v}'
+            shear_renames[f'mcal_gauss_T{v}']        = f'mcal_T{v}'
+            shear_renames[f'mcal_gauss_s2n{v}']      = f'mcal_s2n{v}'
+
+
+        for old_name, new_name in photo_renames.items():
+            photo_data[new_name] = photo_data[old_name]
+            del photo_data[old_name]
+
+        for old_name, new_name in shear_renames.items():
+            shear_data[new_name] = shear_data[old_name]
+            del shear_data[old_name]
+
+        # Now the magnitudes, which we have to calculate from the
+        # fluxes.
+        for b in metacal_bands:
+            for v in ['', '_1p', '_2p', '_1m', '_2m']:
+                flux = shear_data['mcal_gauss_flux_{b}{v}']
+                err = shear_data['mcal_gauss_flux_err_{b}{v}']
+                mag = -2.5 * np.log10(flux) + metacal_zero_point
+                mag_err = (2.5 * err ) / (flux * np.log(10))
+
+                shear_data[f'mcal_mag_{b}{v}'] = mag
+                shear_data[f'mcal_mag_err_{b}{v}'] = mag_err
+
+                del flux = shear_data['mcal_gauss_flux_{b}{v}']
+                del err = shear_data['mcal_gauss_flux_err_{b}{v}']
+
+
+        
+
+
+
+    def compute_star_data(self, data, tract):
         star_data = {}
         # We specifically use the stars chosen for PSF measurement
-        star = data['calib_psf_used']
+        star = tract.star_index
 
         # General columns
         star_data['ra'] = data['ra'][star]
