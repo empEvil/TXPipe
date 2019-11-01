@@ -34,17 +34,27 @@ class TXDirectCatalogInput(PipelineStage):
 
     def run(self):
 
-        tracts, total_count, star_count = self.match_input_files()
+        if self.rank == 0:
+            tracts, total_count, star_count = self.match_input_files()
+            if self.comm is not None and len(tracts) < self.size:
+                raise RuntimeError("Need more file pairs than MPI procs.  Because they all need some data to set up the output. Look, trust me, it's more complicated than it sounds.")
+        else:
+             tracts = None
+             total_count = None
+             star_count = None
         # Count the stars as well
-
+        if self.comm is not None:
+            tracts = self.comm.bcast(tracts)
+            total_count = self.comm.bcast(total_count)
+            star_count = self.comm.bcast(star_count)
+        
         shear_output = photo_output = star_output = None
 
 
-        if self.comm is not None and len(file_pairs) < self.comm.Get_rank():
-            raise RuntimeError("Need more file pairs than MPI procs.  Because they all need some data to set up the output. Look, trust me, it's more complicated than it sounds.")
-
         # Can parallelize to run over these separately
-        for tract in tracts:
+        n = len(tracts)
+        for i, tract in self.split_tasks_by_rank(enumerate(tracts)):
+            print(f"Process {self.rank} reading data for tract {tract.tract} ({i+1}/{n})")
             photo_data, shear_data = self.read_tract(tract)
             self.preprocess_data(shear_data, photo_data)
             star_data = self.compute_star_data(photo_data, tract)
@@ -126,7 +136,7 @@ class TXDirectCatalogInput(PipelineStage):
             shear_ids = self.read_file(shear_filename,  ['id'])['id']
             photo_data = self.read_file(object_filename, ['id', 'calib_psf_used'])
             if (i+1)%10==0:
-                print(f"Read {i} of {n} file pairs")
+                print(f" - Done matching for {i+1} of {n} file pairs")
             photo_ids = photo_data['id']
             star_index = np.where(photo_data['calib_psf_used'])[0]
             shear_index, photo_index = intersecting_indices(shear_ids, photo_ids)
@@ -140,12 +150,11 @@ class TXDirectCatalogInput(PipelineStage):
 
 
     def read_tract(self, tract):
-        print(f"Reading data for tract {tract.tract}")
         object_columns, shear_columns = self.select_input_columns()
 
-        print("Reading {} columns from {}".format(len(shear_columns), tract.shear_file))
+        print(" - {} columns from {}".format(len(shear_columns), tract.shear_file))
         shear_data = self.read_file(tract.shear_file,  shear_columns)
-        print("Reading {} columns from {}".format(len(object_columns), tract.photo_file))
+        print(" - {} columns from {}".format(len(object_columns), tract.photo_file))
         photo_data = self.read_file(tract.photo_file, object_columns)
 
 
@@ -270,7 +279,8 @@ class TXDirectCatalogInput(PipelineStage):
                 del shear_data[f'mcal_gauss_flux_{b}{v}']
                 del shear_data[f'mcal_gauss_flux_err_{b}{v}']
 
-
+        shear_data['ra'] = photo_data['ra']
+        shear_data['dec'] = photo_data['dec']
         
 
 
@@ -321,12 +331,13 @@ class TXDirectCatalogInput(PipelineStage):
         g = output_file[group]
         n = len(list(data.values())[0])
         end = start + n
+        print(f"Writing {group} rows {start} - {end}")
         for name, col in data.items():
             g[name][start:end] = col
 
 
     def create_output(self, output_tag, group, data, n):
-        f = self.open_output(output_tag)
+        f = self.open_output(output_tag, parallel=True)
         g = f.create_group(group)
         for name, value in data.items():
             g.create_dataset(name, (n,), dtype=value.dtype)
