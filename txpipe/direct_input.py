@@ -230,8 +230,6 @@ class TXDirectCatalogInput(PipelineStage):
         
         # rename columns:
         photo_renames = {
-            'coord_ra' : 'ra',
-            'coord_dec' : 'dec',
             'ext_shapeHSM_HsmSourceMoments_xx' : 'Ixx',
             'ext_shapeHSM_HsmSourceMoments_xy' : 'Ixy',
             'ext_shapeHSM_HsmSourceMoments_yy' : 'Iyy',
@@ -279,7 +277,11 @@ class TXDirectCatalogInput(PipelineStage):
                 del shear_data[f'mcal_gauss_flux_{b}{v}']
                 del shear_data[f'mcal_gauss_flux_err_{b}{v}']
 
-        shear_data['ra'] = photo_data['ra']
+        # Convert ra and dec into degrees a expected by the rest of the pipeline
+        photo_data['ra'] = np.degrees(photo_data['ra'])
+        photo_data['dec'] = np.degrees(photo_data['dec'])
+
+        shear_data['ra']  = photo_data['ra']
         shear_data['dec'] = photo_data['dec']
         
 
