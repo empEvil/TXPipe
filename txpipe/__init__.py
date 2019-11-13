@@ -22,3 +22,4 @@ from .psf_diagnostics import TXPSFDiagnostics, TXRoweStatistics
 from .twopoint import TXGammaTDimStars
 from .twopoint import TXGammaTBrightStars
 from .tracer_metadata import TXTracerMetaData
+from .cosmolike_interface import  TXCosmoLikeRealSpace
