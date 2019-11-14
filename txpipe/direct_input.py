@@ -113,7 +113,7 @@ class TXDirectCatalogInput(PipelineStage):
             pairs.append((tract, shear_file, object_file))
         for object_file in object_tracts.values():
             print(f"No matching shear file for object file {object_file}")
-
+        pairs.sort(key=lambda p: int(p[0]))
         print("Found {} pairs".format(len(pairs)))
         if not pairs:
             raise IOError("No file pairs found in specified directories matching patterns")
@@ -135,14 +135,15 @@ class TXDirectCatalogInput(PipelineStage):
         for i, (tract, shear_filename, object_filename) in enumerate(tract_files):
             shear_ids = self.read_file(shear_filename,  ['id'])['id']
             photo_data = self.read_file(object_filename, ['id', 'calib_psf_used'])
-            if (i+1)%10==0:
-                print(f" - Done matching for {i+1} of {n} file pairs")
             photo_ids = photo_data['id']
             star_index = np.where(photo_data['calib_psf_used'])[0]
             shear_index, photo_index = intersecting_indices(shear_ids, photo_ids)
             tracts.append(TractData(tract, shear_filename, object_filename, shear_index, photo_index, star_index, start, star_start))
             start += shear_index.size
             star_start += star_index.size
+            fraction = shear_index.size / photo_ids.size
+            print(f"Found match for {fraction:.2%} of tract {tract} ({i+1}/{n})")
+            
         total_count = start
         star_count = star_start
         return tracts, total_count, star_count
@@ -163,7 +164,7 @@ class TXDirectCatalogInput(PipelineStage):
 
         for name in list(photo_data.keys()):
             photo_data[name] = photo_data[name][:][tract.photo_index]
-        
+            
         return photo_data, shear_data
 
 
@@ -278,13 +279,17 @@ class TXDirectCatalogInput(PipelineStage):
                 del shear_data[f'mcal_gauss_flux_err_{b}{v}']
 
         # Convert ra and dec into degrees a expected by the rest of the pipeline
-        photo_data['ra'] = np.degrees(photo_data['ra'])
-        photo_data['dec'] = np.degrees(photo_data['dec'])
+        photo_data['ra'] = np.degrees(photo_data['coord_ra'])
+        photo_data['dec'] = np.degrees(photo_data['coord_dec'])
 
         shear_data['ra']  = photo_data['ra']
         shear_data['dec'] = photo_data['dec']
-        
 
+        nans = np.count_nonzero(np.isnan(shear_data['mcal_g1']))
+        total = shear_data['mcal_g1'].size
+        measured = total - nans
+        fraction = measured / total
+        print(f"{measured} out of {total} objects in tract have measured g1 ({fraction:.1%})")
 
 
     def compute_star_data(self, data, tract):
