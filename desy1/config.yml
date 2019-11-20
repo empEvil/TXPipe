@@ -1,14 +1,3 @@
-TXMetacalGCRInput:
-    cat_name: dc2_object_run2.1i_dr1b_with_metacal_griz
-
-TXExposureInfo:
-    dc2_name: '1.2p'
-
-
-TXProtoDC2Mock:
-    cat_name: cosmoDC2_v1.1.4_image
-    extra_cols: redshift_true size_true shear_1 shear_2
-
 
 PZPDFMLZ:
     nz: 301
@@ -20,11 +9,11 @@ TXPhotozStack:
 
 TXSelector:
     bands: riz #used for selection
-    T_cut: 0.5
-    s2n_cut: 10.0
+    T_cut: 0.1
+    s2n_cut: 0.0
     max_rows: 1000
     delta_gamma: 0.02
-    zbin_edges: [0.3, 0.5, 0.7, 0.9, 2.0]
+    zbin_edges: [0.2, 0.43, 0.63, 0.9, 1.3]
     chunk_rows: 100000
     # Mag cuts
     cperp_cut: 0.2
@@ -46,7 +35,8 @@ TXTwoPoint:
     do_pos_pos: True
     do_shear_shear: True
     do_shear_pos: True
-    flip_g2: True  # use true when using metacal shears
+    flip_g2: True
+    # use true when using metacal shears
     verbose: 0
 
 TXDiagnosticMaps:
