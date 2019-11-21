@@ -13,8 +13,8 @@ def add_col(name):
 
 # List all files for gold catalog (public realease des y1), one file per tile
 path = '/global/projecta/projectdirs/lsst/groups/WL/projects/wl-txpipe-hack/DESY1/gold/'
-files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path,f))]
-print files[0]
+files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path,f)) and 'DES' in f]
+print files
 print len(files)
 
 # Compile all tiles into a single array
@@ -28,6 +28,7 @@ for band in bands:
     gold['%s_mag_err'%band] = []
     
 for f in files:
+    print f
     hdu = fits.open(path+f)
     d = hdu[1].data
     gold['ra'].extend(d['RA'])
