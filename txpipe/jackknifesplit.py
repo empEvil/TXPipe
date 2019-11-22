@@ -37,8 +37,7 @@ class TXJackknifesplit(PipelineStage):
         ra = data['ra']
         dec = data['dec']
 
-        X = N.stack((ra,dec)).T
-        print('so far so terrible')
+        X = np.stack((ra,dec)).T
         km = kmeans_sample(X, self.config['ncen'], maxiter = 100)
         if not km.converged:
             km.run(X,maxiter =200)
@@ -56,7 +55,7 @@ class TXJackknifesplit(PipelineStage):
     def labels(self,data, km):
         ra = data['ra']
         dec = data['dec']
-        X = N.stack((ra,dec)).T
+        X = np.stack((ra,dec)).T
 
         labels = km.find_nearest(X)
         return labels
@@ -64,7 +63,7 @@ class TXJackknifesplit(PipelineStage):
     def labels_ran(self,data, km):
         ra = data['random_ra']
         dec = data['random_dec']
-        X = N.stack((ra,dec)).T
+        X = np.stack((ra,dec)).T
 
         labels = km.find_nearest(X)
         return labels
@@ -91,24 +90,22 @@ class TXJackknifesplit(PipelineStage):
             return
 
         # Columns we need from the tomography catalog
-        randoms_cols = ['dec','ra','bin']
+        randoms_cols = ['dec','ra']
         print(f"Loading random catalog columns: {randoms_cols}")
 
         f = self.open_input('random_cats')
         group = f['randoms']
 
-        cut = self.config['reduce_randoms_size']
-        if 0.0<cut<1.0:
-            N = group['dec'].size
-            sel = np.random.uniform(size=N) < cut
-        else:
-            sel = slice(None)
+        #cut = self.config['reduce_randoms_size']
 
+        #if 0.0<cut<1.0:
+        #    N = group['dec'].size
+        #    sel = np.random.uniform(size=N) < cut
+        #else:
+        sel = slice(None)
+        
         data['random_ra'] =  group['ra'][sel]
         data['random_dec'] = group['dec'][sel]
-        data['random_e1'] =  group['e1'][sel]
-        data['random_e2'] =  group['e2'][sel]
-        data['random_bin'] = group['bin'][sel]
 
         f.close()
 
