@@ -9,7 +9,7 @@ import sys
 # for holding individual measurements
 Measurement = collections.namedtuple(
     'Measurement',
-    ['corr_type', 'theta', 'value', 'error', 'npair', 'weight', 'i', 'j'])
+    ['corr_type', 'theta', 'value', 'cov', 'npair', 'weight', 'i', 'j'])
 
 SHEAR_SHEAR = 0
 SHEAR_POS = 1
@@ -17,13 +17,14 @@ POS_POS = 2
 
 
 
-class TXTwoPoint(PipelineStage):
-    name='TXTwoPoint'
+class TXTwoPoint_Jacked(PipelineStage):
+    name='TXTwoPoint_Jacked'
     inputs = [
         ('shear_catalog', MetacalCatalog),
         ('tomography_catalog', TomographyCatalog),
         ('photoz_stack', HDFFile),
         ('random_cats', RandomsCatalog),
+        ('KMcenters', KMcenters)
     ]
     outputs = [
         ('twopoint_data', SACCFile),
@@ -45,7 +46,7 @@ class TXTwoPoint(PipelineStage):
         'do_shear_shear': True,
         'do_shear_pos': True,
         'do_pos_pos': True,
-        'ncen': 50
+        'ncen': 50 #Number of centers
         }
 
     def run(self):
@@ -65,6 +66,7 @@ class TXTwoPoint(PipelineStage):
         self.load_lens_catalog(data)
         # Binning information
         self.read_nbin(data)
+        self.load_KM_centers(data)
 
         # Calculate metadata like the area and related
         # quantities
@@ -237,12 +239,15 @@ class TXTwoPoint(PipelineStage):
         for d in results:
             tracer1 = f'source_{d.i}' if d.corr_type in [XIP, XIM, GAMMAT] else f'lens_{d.i}'
             tracer2 = f'source_{d.j}' if d.corr_type in [XIP, XIM] else f'lens_{d.j}'
+
+
             # Each of our Measurement objects contains various theta values,
             # and we loop through and add them all
             n = len(d.value)
             for i in range(n):
+                error = np.sqrt(d.cov[i,i])
                 S.add_data_point(d.corr_type, (tracer1,tracer2), d.value[i],
-                    theta=d.theta[i], error=d.error[i], npair=d.npair[i], weight=d.weight[i])
+                    theta=d.theta[i], error=error, npair=d.npair[i], weight=d.weight[i])
 
         #self.write_metadata(S, meta)
 
@@ -287,29 +292,29 @@ class TXTwoPoint(PipelineStage):
         results = []
 
         if k==SHEAR_SHEAR:
-            theta, xip, xim, xiperr, ximerr, npairs, weight = self.calculate_shear_shear(data, i, j)
+            theta, xip, xim, xip_cov, xim_cov, npairs, weight = self.calculate_shear_shear(data, i, j)
             if i==j:
                 npairs/=2
                 weight/=2
 
-            results.append(Measurement(XIP, theta, xip, xiperr, npairs, weight, i, j))
-            results.append(Measurement(XIM, theta, xim, ximerr, npairs, weight, i, j))
+            results.append(Measurement(XIP, theta, xip, xip_cov, npairs, weight, i, j))
+            results.append(Measurement(XIM, theta, xim, xim_cov, npairs, weight, i, j))
 
         elif k==SHEAR_POS:
-            theta, val, err, npairs, weight = self.calculate_shear_pos(data, i, j)
+            theta, val, cov, npairs, weight = self.calculate_shear_pos(data, i, j)
             if i==j:
                 npairs/=2
                 weight/=2
 
-            results.append(Measurement(GAMMAT, theta, val, err, npairs, weight, i, j))
+            results.append(Measurement(GAMMAT, theta, val, cov, npairs, weight, i, j))
 
         elif k==POS_POS:
-            theta, val, err, npairs, weight = self.calculate_pos_pos(data, i, j)
+            theta, val, cov, npairs, weight = self.calculate_pos_pos(data, i, j)
             if i==j:
                 npairs/=2
                 weight/=2
 
-            results.append(Measurement(WTHETA, theta, val, err, npairs, weight, i, j))
+            results.append(Measurement(WTHETA, theta, val, cov, npairs, weight, i, j))
         sys.stdout.flush()
         return results
 
@@ -341,7 +346,18 @@ class TXTwoPoint(PipelineStage):
             ra = data['ra'][mask],
             dec = data['dec'][mask],
             ra_units='degree', dec_units='degree')
-        return cat
+        ncen = self.config['ncen']
+        cat2 = np.empty(ncen, dtype = treecorr.Catalog)
+        km = KMeans(data['KMcenters'])
+        labels = data['jack_label'][mask]
+        for j in range(ncen):
+            cat2[j] = treecorr.Catalog(
+            g1 = cat.g1[labels== j],
+            g2 = cat.g2[labels== j],
+            ra = cat.ra[labels== j],
+            dec = cat.dec[labels == j],
+            ra_units = 'degree', dec_units ='degree')
+        return cat2
 
 
     def get_lens_catalog(self, data, i):
@@ -361,22 +377,38 @@ class TXTwoPoint(PipelineStage):
             ra=ra, dec=dec,
             ra_units='degree', dec_units='degree')
 
+        ncen = self.config['ncen']
+        cat2 = np.empty(ncen, dtype = treecorr.Catalog)
+        km = KMeans(data['KMcenters'])
+        labels = data['jack_label'][mask]#km.find_nearest((cat.ra, cat.dec).T, ncen, maxiter = 100)
+        for j in range(ncen):
+            cat2[j] = treecorr.Catalog(
+            ra = cat.ra[labels== j],
+            dec = cat.dec[labels == j],
+            ra_units = 'degree', dec_units ='degree')
+
         if 'random_bin' in data:
             random_mask = data['random_bin']==i
             rancat  = treecorr.Catalog(
                 ra=data['random_ra'][random_mask], dec=data['random_dec'][random_mask],
                 ra_units='degree', dec_units='degree')
+            rancat2 = np.empty(ncen, dtype = treecorr.Catalog)
+            for j in range(ncen):
+                rancat2[j] = treecorr.Catalog(ra = rancat.ra[labels == j],
+                dec = rancat.dec[labels == j],
+                ra_units = 'degree', dec_units = 'degree')
         else:
-            rancat = None
+            rancat2 = None
 
-        return cat, rancat
+        return cat2, rancat2
 
 
     def calculate_shear_shear(self, data, i, j):
         import treecorr
 
         cat_i = self.get_shear_catalog(data, i)
-        n_i = cat_i.nobj
+        #This is removed for now, cause I don't know about it for the split up cats
+        n_i = 0#cat_i.nobj
 
 
         if i==j:
@@ -384,57 +416,156 @@ class TXTwoPoint(PipelineStage):
             n_j = n_i
         else:
             cat_j = self.get_shear_catalog(data, j)
-            n_j = cat_j.nobj
+            #This is removed for now, cause I don't know about it for the split up cats
+            n_j = 0#cat_j.nobj
 
 
         print(f"Rank {self.rank} calculating shear-shear bin pair ({i},{j}): {n_i} x {n_j} objects")
-# THIS WILL NEED TO CHANGE
-        gg = treecorr.GGCorrelation(self.config)
-        gg.process(cat_i, cat_j)
+# THis is the new thing added:
+        ncen = self.config['ncen']
+        nbins = self.config['nbins']
+        gg = N.full([ncen,ncen], treecorr.GGCorrelation(self.config), dtype = treecorr.GGCorrelation)
+        gg2 = N.full(ncen, treecorr.GGCorrelation(self.config), dtype = treecorr.GGCorrelation)
+        index = np.zeros(ncen)
+        for m in range(ncen):
+            index[m] = m
+            for n in range(ncen):
+                gg[m,n].process_cross(cat_i[m],cat_j[n])
 
-        theta=np.exp(gg.meanlogr)
-        xip = gg.xip
-        xim = gg.xim
-        xiperr = np.sqrt(gg.varxip)
-        ximerr = np.sqrt(gg.varxim)
 
-        return theta, xip, xim, xiperr, ximerr, gg.npairs, gg.weight
+        xip = np.zeros((nbins,ncen))
+        xim = np.zeros_like(xip)
+        xipvar = np.zeros_like(xip)
+        ximvar = np.zeros_lip(xim)
+        meanlogr = np.zeros_like(xip)
+
+        gg_pairs = np.zeros(ncen)
+        gg_weight = np.zeros(ncen)
+        for m in range(ncen):
+            #gg2[m] = treecorr.GGCorrelation(self.config)
+
+            for n in range(ncen-1):
+                l = (m+n+1) % ncen
+                for o in range(ncen-1):
+                    p = (m+o+1) % ncen
+                    gg2[m].__iadd__(gg[l,p])
+            varG1 = treecorr.calculateVarG(cat_i[index != m])
+            varG2 = treecorr.calculateVarG(cat_j[index != m])
+            gg2[m].finalize(varG1,varG2)
+
+            meanlogr[:,m] = gg2[m].meanlogr
+            xip[:,m] = gg2[m].xip
+            xim[:,m] = gg2[m].xim
+            xipvar[:,m] = gg2[m].varxip
+            ximvar[:,m] = gg2[m].varxim
+            gg_pairs[m] = gg2[m].npairs
+            gg_weight[m] = gg2[m].weight
+
+        #Cool now we have ncen data so now we should probably try and calculate errors and stuff.
+        xip2 = N.average(xip, axis = 1)
+        xim2 = N.average(xim, axis = 1)
+        xipvar2 = N.average(xipvar, axis = 1) #This is only the average of the shape variance
+        ximvar2 = N.average(ximvar, axis = 1) #calculated in treecorr
+        meanlogr2 = N.average(meanlogr, axis = 1)
+
+        cov_xip = N.zeros((nbins,nbins))
+        cov_xim = N.zeros((nbins,nbins))
+        for l in range(nbins):
+            for m in range(nbins):
+                for n in range(ncen):
+                    cov_xip[l,m] += (xip[l,n] - xip2[l])*(xip[m,n] - xip2[m])
+                    cov_xim[l,m] += (xim[l,n] - xim2[l])*(xim[m,n] - xim2[m])
+        cov_xip = (ncen-1)/ncen * cov_xip
+        cov_xim = (ncen-1)/ncen * cov_xim
+
+        theta = np.exp(meanlogr2)
+
+        return theta, xip2, xim2, cov_xip, cov_xim, gg_npairs, gg_weight
 
     def calculate_shear_pos(self,data, i, j):
         import treecorr
 
         cat_i = self.get_shear_catalog(data, i)
-        n_i = cat_i.nobj
+        #see the shear shear for reasoning
+        n_i = 0 #cat_i.nobj
 
         cat_j, rancat_j = self.get_lens_catalog(data, j)
-        n_j = cat_j.nobj
-        n_rand_j = rancat_j.nobj if rancat_j is not None else 0
+        n_j = 0 #cat_j.nobj
+        n_rand_j = 0#rancat_j.nobj if rancat_j is not None else 0
 
         print(f"Rank {self.rank} calculating shear-position bin pair ({i},{j}): {n_i} x {n_j} objects, {n_rand_j} randoms")
 # THIS WILL NEED TO CHANGE
-        ng = treecorr.NGCorrelation(self.config)
-        ng.process(cat_j, cat_i)
+        ncen = self.config['ncen']
+        nbins = self.config['nbins']
+        ng = N.full([ncen,ncen], treecorr.NGCorrelation(self.config), dtype = treecorr.NGCorrelation)
+        ng2 = N.full(ncen, treecorr.NGCorrelation(self.config), dtype = treecorr.NGCorrelation)
+        rg = N.full_like(ng)
+        rg2 = N.full_like(ng2)
+        index = np.zeros(ncen)
+        for m in range(ncen):
+            index[m] = m
+            for n in range(ncen):
+                ng[m,n].process_cross(cat_i[m],cat_j[n])
+                if rancat_j:
+                    rg[m,n].process_cross(rancat_j[m], cat_i[n])
+                else:
+                    rg[m,n] = None
+
+        gammat = np.zeros((nbins,ncen))
+        gammat-im = np.zeros_like(gammat)
+        gammat_varr = np.zeros_like(gammat)
+        ximvar = np.zeros_lip(gammat)
+        meanlogr = np.zeros_like(gammat)
+
+
+        ng_pairs = np.zeros(ncen)
+        ng_weight = np.zeros(ncen)
+        for m in range(ncen):
+            #ng2[m] = treecorr.NGCorrelation(self.config)
+
+            for n in range(ncen-1):
+                l = (m+n+1) % ncen
+                for o in range(ncen-1):
+                    p = (m+o+1) % ncen
+                    ng2[m].__iadd__(ng[l,p])
+                    rg2[m].__iadd__(rg[l,p])
+            varG1 = treecorr.calculateVarG(cat_i[index != m])
+            ng2[m].finalize(varG1)
+            rg2[m].finalize(varG1)
+
+            meanlogr[:,m] = ng2[m].meanlogr
+            gammat[:,m], gammat_im[:,m],  gammat_varr[:,m]= ng2[m].calculateXi(rg=rg2[m])
+            ng_pairs[m] = ng2[m].npairs
+            ng_weight[m] = ng2[m].weight
 # ALSO CHANGE
-        if rancat_j:
-            rg = treecorr.NGCorrelation(self.config)
-            rg.process(rancat_j, cat_i)
-        else:
-            rg = None
+        gammat2 = N.average(gammat, axis = 1)
+        gammat_im2 = N.average(gammat_im, axis = 1)
+        gammat_varr2 = N.average(gammat_varr, axis = 1) #This is only the average of the shape variance
+        meanlogr2 = N.average(meanlogr, axis = 1)
+        theta = np.exp(meanlogr2)
 
-        gammat, gammat_im, gammaterr = ng.calculateXi(rg=rg)
+        cov_xi = N.zeros((nbins,nbins))
+        cov_xi_im = N.zeros((nbins,nbins))
+        for l in range(nbins):
+            for m in range(nbins):
+                for n in range(ncen):
+                    cov_xi[l,m] += (gammat[l,n] - gammat2[l])*(gammat[m,n] - gammat2[m])
+                    cov_xi_im[l,m] += (gammat_im[l,n] - gammat_im2[l])*(gammat_im[m,n] - gammat_im2[m])
+        cov_xi = (ncen-1)/ncen * cov_xi
+        cov_xi_im = (ncen-1)/ncen * cov_xi_im
 
-        theta = np.exp(ng.meanlogr)
-        gammaterr = np.sqrt(gammaterr) #This should also change
 
-        return theta, gammat, gammaterr, ng.npairs, ng.weight
+
+        return theta, gammat2, cov_xi, ng_npairs, ng_weight
 
 
     def calculate_pos_pos(self, data, i, j):
         import treecorr
 
         cat_i, rancat_i = self.get_lens_catalog(data, i)
-        n_i = cat_i.nobj
-        n_rand_i = rancat_i.nobj if rancat_i is not None else 0
+        #see shear shear for why its just zero
+        n_i = 0#cat_i.nobj
+        n_rand_i =0# rancat_i.nobj if rancat_i is not None else 0
 
         if i==j:
             cat_j = cat_i
@@ -443,28 +574,78 @@ class TXTwoPoint(PipelineStage):
             n_rand_j = n_rand_i
         else:
             cat_j, rancat_j = self.get_lens_catalog(data, j)
-            n_j = cat_j.nobj
-            n_rand_j = rancat_j.nobj if rancat_j is not None else 0
+            n_j = 0#cat_j.nobj
+            n_rand_j =0# rancat_j.nobj if rancat_j is not None else 0
 
         print(f"Rank {self.rank} calculating position-position bin pair ({i},{j}): {n_i} x {n_j} objects, "
             f"{n_rand_i} x {n_rand_j} randoms")
 
 #ALL THESE SHOULD CHANGE!
-        nn = treecorr.NNCorrelation(self.config)
-        rn = treecorr.NNCorrelation(self.config)
-        nr = treecorr.NNCorrelation(self.config)
-        rr = treecorr.NNCorrelation(self.config)
+        ncen = self.config['ncen']
+        nbins = self.config['nbins']
+        nn = N.full([ncen,ncen], treecorr.NGCorrelation(self.config), dtype = treecorr.NGCorrelation)
+        nn2 = N.full(ncen, treecorr.NGCorrelation(self.config), dtype = treecorr.NGCorrelation)
+        rn = N.full_like(nn)
+        rn2 = N.full_like(nn2)
+        nr = N.full_like(nn)
+        nr2 = N.full_like(nn2)
+        rr = N.full_like(nn)
+        rr2 = N.full_like(nn2)
 
-        nn.process(cat_i,    cat_j)
-        nr.process(cat_i,    rancat_j)
-        rn.process(rancat_i, cat_j)
-        rr.process(rancat_i, rancat_j)
+        index = np.zeros(ncen)
+        for m in range(ncen):
+            index[m] = m
+            for n in range(ncen):
+                nn[m,n].process_cross(cat_i[m],cat_j[n])
+                nr[m,n].process_cross(cat_i[m],rancat_j[n])
+                rn[m,n].process_cross(rancat_i[m], cat_j[n])
+                rr[m,n].process_cross(rancat_i[m], rancat_j[n])
 
-        theta=np.exp(nn.meanlogr)
-        wtheta,wthetaerr=nn.calculateXi(rr, dr=nr, rd=rn)
-        wthetaerr=np.sqrt(wthetaerr)
 
-        return theta, wtheta, wthetaerr, nn.npairs, nn.weight
+
+        wtheta = np.zeros((nbins,ncen))
+        wthetaerr = np.zeros_like(wheta)
+
+
+        nn_pairs = np.zeros(ncen)
+        nn_weight = np.zeros(ncen)
+        for m in range(ncen):
+            #ng2[m] = treecorr.NNCorrelation(self.config)
+
+            for n in range(ncen-1):
+                l = (m+n+1) % ncen
+                for o in range(ncen-1):
+                    p = (m+o+1) % ncen
+                    nn2[m].__iadd__(nn[l,p])
+                    nr2[m].__iadd__(nr[l,p])
+                    rn2[m].__iadd__(rn[l,p])
+                    rr2[m].__iadd__(rr[l,p])
+
+            nn2[m].finalize()
+            nr2[m].finalize()
+            rn2[m].finalize()
+            rr2[m].finalize()
+
+            meanlogr[:,m] = nn2[m].meanlogr
+            wheta[:,m], wthetaerr[:,m] = nn2[m].calculateXi(rr[m], dr=nr2[m],rd=rn[m])
+            nn_pairs[m] = nn2[m].npairs
+            nn_weight[m] = nn2[m].weight
+
+        wtheta2 = N.average(wheta, axis = 1)
+        wthetaerr2 = N.average(wthetaerr, axis = 1)
+        meanlogr2 = N.average(meanlogr, axis = 1)
+        theta = np.exp(meanlogr2)
+
+        cov_wheta = N.zeros((nbins,nbins))
+        for l in range(nbins):
+            for m in range(nbins):
+                for n in range(ncen):
+                    cov_wheta[l,m] += (wheta[l,n] - wtheta2[l])*(wheta[m,n] - wtheta2[m])
+        cov_wheta = (ncen-1)/ncen * cov_wheta
+
+
+
+        return theta, wheta2, cov_wheta, nn_npairs, nn_weight
 
     def load_tomography(self, data):
 
@@ -486,6 +667,9 @@ class TXTwoPoint(PipelineStage):
         # Subclasses can load an external lens catalog
         pass
 
+    def load_KM_centers(self, data):
+        f = self.open_input('KMcenters')
+        data['KMcenters'] = f['KMcenters'][:]
 
 
     def load_shear_catalog(self, data):
