@@ -21,3 +21,5 @@ from .exposure_info import TXExposureInfo
 from .psf_diagnostics import TXPSFDiagnostics, TXRoweStatistics
 from .twopoint import TXGammaTDimStars
 from .twopoint import TXGammaTBrightStars
+from .twopointJacked import TXTwoPoint_Jacked
+from .jackknifesplit import TXJackknifesplit

@@ -5,6 +5,7 @@ stages:
     - name: TXPhotozStack
     - name: TXDiagnosticMaps
     - name: TXRandomCat
+    - name: TXJackknifesplit
     - name: TXTwoPoint_Jacked
     - name: TXDiagnosticPlots
     - name: TXGammaTFieldCenters
@@ -40,6 +41,7 @@ inputs:
     calibration_table: data/example/inputs/sample_cosmodc2_w10year_errors.dat
     exposures: data/example/inputs/exposures.hdf5
     star_catalog: data/example/inputs/star_catalog.hdf5
+    Jack_labels: data/example/inputs/Jack_labels.hdf5
     # This file comes with the code
     fiducial_cosmology: data/fiducial_cosmology.yml
 

@@ -1,0 +1,16 @@
+JackKnife and TXpipe, in Texas
+
+At the moment, there is a new version of the TXTwoPoint python file, that includes
+JackKnife'ing on the different probes. The following is lacking for it to actually
+work:
+
+- Saving the covariances in the TXTwoPoint_Jacked file.
+- some method of generating the JackKnife regions, this will be a new pipeline stage
+    - Should be something that people can have some choice / input on, but initially
+      I am going to try and implement a simple call to the Kmeans_radec code.
+      (E. Sheldon's code)
+- Each object will need to know which JackKnife region it belongs to, this should
+  be as simple as to add an extra integer column to the catalog, with the JK tile number
+- There is an extra config parameter for the TXTwoPoint config, which is the number of
+  JackKnife regions, this needs to be propagated correctly, and it needs to be the same
+  as what the generator is using. 
