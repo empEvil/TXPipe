@@ -16,7 +16,7 @@ class TXJackknifesplit(PipelineStage):
     ]
 
     config_options = {
-        'ncen': 50
+        'ncen': 10
     }
 
     def run(self):
@@ -28,7 +28,7 @@ class TXJackknifesplit(PipelineStage):
         labels = self.labels(data, km)
         data2 = {}
         self.load_random_catalog(data)
-        labels2 = self.labels(data2, km)
+        labels2 = self.labels_ran(data, km)
 
         output_file.close()
 
@@ -103,7 +103,7 @@ class TXJackknifesplit(PipelineStage):
         #    sel = np.random.uniform(size=N) < cut
         #else:
         sel = slice(None)
-        
+
         data['random_ra'] =  group['ra'][sel]
         data['random_dec'] = group['dec'][sel]
 
@@ -120,14 +120,14 @@ class TXJackknifesplit(PipelineStage):
         group = outfile.create_group('jackknife')
         group.create_dataset('region', (n,), dtype ='i')
 
-        group = outfile.create_group('jackknife_random')
+        #group = outfile.create_group('jackknife_random')
         group.create_dataset('region_ran', (m,), dtype ='i')
 
         return outfile
 
     def write_output(self, outfile, labels, labels_ran):
 
-        group = outfile['jackknife_labels']
+        group = outfile['jackknife']
         group['region'] = labels
         group = outfile['jackknife_random']
         group['region_ran'] = labels_ran

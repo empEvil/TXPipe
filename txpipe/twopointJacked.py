@@ -46,7 +46,7 @@ class TXTwoPoint_Jacked(PipelineStage):
         'do_shear_shear': True,
         'do_shear_pos': True,
         'do_pos_pos': True,
-        'ncen': 50 #Number of centers
+        'ncen': 10 #Number of centers
         }
 
     def run(self):
@@ -677,11 +677,10 @@ class TXTwoPoint_Jacked(PipelineStage):
 
     def load_jackknife_labels(self, data):
         f = self.open_input('Jack_labels')
-        jacklabels = f['jackknife_labels/region'][:]
-        ran_labels = f['jackknife_random/region_ran'][:]
+        jacklabels = f['jackknife']
 
-        data['jack_label'] = jacklabels
-        data['jack_label_ran'] = ran_labels
+        data['jack_label'] = jacklabels['region'][:]
+        data['jack_label_ran'] = jacklabels['region_ran'][:]
 
         f.close()
 
